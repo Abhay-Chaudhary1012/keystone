@@ -249,7 +249,7 @@ public class WorkOrderController {
      * Technician self-service start will be added in M3 Step 2.</p>
      */
     @PostMapping("/{id}/start")
-    @PreAuthorize("hasAnyRole('DISPATCHER', 'MANAGER')")
+    @PreAuthorize("hasAnyRole('DISPATCHER', 'MANAGER', 'TECHNICIAN')")
     @Operation(summary = "Start work order",
             description = "Transitions work order from ASSIGNED to IN_PROGRESS.")
     @ApiResponses({
@@ -273,7 +273,7 @@ public class WorkOrderController {
      * <p>Used when work cannot continue (waiting for parts, access issues, etc.).</p>
      */
     @PostMapping("/{id}/hold")
-    @PreAuthorize("hasAnyRole('DISPATCHER', 'MANAGER')")
+    @PreAuthorize("hasAnyRole('DISPATCHER', 'MANAGER', 'TECHNICIAN')")
     @Operation(summary = "Hold work order",
             description = "Transitions work order from IN_PROGRESS to ON_HOLD.")
     @ApiResponses({
@@ -295,7 +295,7 @@ public class WorkOrderController {
      * Resumes a work order: ON_HOLD → IN_PROGRESS.
      */
     @PostMapping("/{id}/resume")
-    @PreAuthorize("hasAnyRole('DISPATCHER', 'MANAGER')")
+   @PreAuthorize("hasAnyRole('DISPATCHER', 'MANAGER', 'TECHNICIAN')")
     @Operation(summary = "Resume work order",
             description = "Transitions work order from ON_HOLD back to IN_PROGRESS.")
     @ApiResponses({
@@ -319,7 +319,7 @@ public class WorkOrderController {
      * <p>COMPLETED is a terminal state — no further transitions allowed.</p>
      */
     @PostMapping("/{id}/complete")
-    @PreAuthorize("hasAnyRole('DISPATCHER', 'MANAGER')")
+    @PreAuthorize("hasAnyRole('DISPATCHER', 'MANAGER', 'TECHNICIAN')")
     @Operation(summary = "Complete work order",
             description = "Transitions work order from IN_PROGRESS to COMPLETED (terminal state).")
     @ApiResponses({

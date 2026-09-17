@@ -24,6 +24,7 @@ import java.util.Optional;
  *   <li>Status/priority filtering — Kanban board, dashboard</li>
  *   <li>Paginated list queries</li>
  *   <li>Uniqueness check for generated codes</li>
+ *   <li>Report summary aggregation</li>
  * </ul>
  *
  * <p><strong>PAGINATION:</strong></p>
@@ -109,6 +110,22 @@ public interface WorkOrderRepository extends JpaRepository<WorkOrder, Long> {
             @Param("priority") Priority priority,
             @Param("search") String search,
             Pageable pageable);
+
+    // ==========================================
+    // Reporting
+    // ==========================================
+
+    /**
+     * Returns the number of work orders for each lifecycle status.
+     *
+     * <p>The result contains rows in the form:
+     * [status, count].
+     * The service layer maps these rows into the report response.</p>
+     */
+    @Query("SELECT wo.status, COUNT(wo) "
+            + "FROM WorkOrder wo "
+            + "GROUP BY wo.status")
+    List<Object[]> countWorkOrdersByStatus();
 
     /** Count work orders to generate the next sequential code. */
     long count();

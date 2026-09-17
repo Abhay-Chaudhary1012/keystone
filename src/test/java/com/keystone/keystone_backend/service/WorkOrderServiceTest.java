@@ -491,14 +491,18 @@ class WorkOrderServiceTest {
         // --- VALID TRANSITIONS ---
 
         @Test
-        @DisplayName("OPEN → ASSIGNED (assign)")
+        @DisplayName("OPEN → ASSIGNED (assign with technician)")
         void openToAssigned() {
             WorkOrder wo = buildTestWorkOrder(WorkOrderStatus.OPEN);
             when(workOrderRepository.findById(1L)).thenReturn(Optional.of(wo));
+            when(userRepository.findById(2L)).thenReturn(Optional.of(technicianUser));
             when(workOrderRepository.save(any(WorkOrder.class))).thenAnswer(i -> i.getArgument(0));
 
-            WorkOrderResponse result = workOrderService.assignWorkOrder(1L, dispatcherPrincipal);
+            AssignWorkOrderRequest request = AssignWorkOrderRequest.builder()
+                    .technicianId(2L).build();
+            WorkOrderResponse result = workOrderService.assignWorkOrder(1L, request, dispatcherPrincipal);
             assertThat(result.getStatus()).isEqualTo("ASSIGNED");
+            assertThat(result.getAssignedTechnicianId()).isEqualTo(2L);
         }
 
         @Test
@@ -542,6 +546,61 @@ class WorkOrderServiceTest {
             when(workOrderRepository.save(any(WorkOrder.class))).thenAnswer(i -> i.getArgument(0));
 
             WorkOrderResponse result = workOrderService.completeWorkOrder(1L, dispatcherPrincipal);
+            assertThat(result.getStatus()).isEqualTo("COMPLETED");
+        }
+
+
+                // --- TECHNICIAN LIFECYCLE ACCESS ---
+
+        @Test
+        @DisplayName("Assigned technician can start their own work order")
+        void assignedTechnicianCanStart() {
+            WorkOrder wo = buildTestWorkOrder(WorkOrderStatus.ASSIGNED);
+            wo.setAssignedTechnician(technicianUser);
+            when(workOrderRepository.findById(1L)).thenReturn(Optional.of(wo));
+            when(workOrderRepository.save(any(WorkOrder.class))).thenAnswer(i -> i.getArgument(0));
+
+            WorkOrderResponse result = workOrderService.startWorkOrder(1L, technicianPrincipal);
+
+            assertThat(result.getStatus()).isEqualTo("IN_PROGRESS");
+        }
+
+        @Test
+        @DisplayName("Assigned technician can put their own work order on hold")
+        void assignedTechnicianCanHold() {
+            WorkOrder wo = buildTestWorkOrder(WorkOrderStatus.IN_PROGRESS);
+            wo.setAssignedTechnician(technicianUser);
+            when(workOrderRepository.findById(1L)).thenReturn(Optional.of(wo));
+            when(workOrderRepository.save(any(WorkOrder.class))).thenAnswer(i -> i.getArgument(0));
+
+            WorkOrderResponse result = workOrderService.holdWorkOrder(1L, technicianPrincipal);
+
+            assertThat(result.getStatus()).isEqualTo("ON_HOLD");
+        }
+
+        @Test
+        @DisplayName("Assigned technician can resume their own work order")
+        void assignedTechnicianCanResume() {
+            WorkOrder wo = buildTestWorkOrder(WorkOrderStatus.ON_HOLD);
+            wo.setAssignedTechnician(technicianUser);
+            when(workOrderRepository.findById(1L)).thenReturn(Optional.of(wo));
+            when(workOrderRepository.save(any(WorkOrder.class))).thenAnswer(i -> i.getArgument(0));
+
+            WorkOrderResponse result = workOrderService.resumeWorkOrder(1L, technicianPrincipal);
+
+            assertThat(result.getStatus()).isEqualTo("IN_PROGRESS");
+        }
+
+        @Test
+        @DisplayName("Assigned technician can complete their own work order")
+        void assignedTechnicianCanComplete() {
+            WorkOrder wo = buildTestWorkOrder(WorkOrderStatus.IN_PROGRESS);
+            wo.setAssignedTechnician(technicianUser);
+            when(workOrderRepository.findById(1L)).thenReturn(Optional.of(wo));
+            when(workOrderRepository.save(any(WorkOrder.class))).thenAnswer(i -> i.getArgument(0));
+
+            WorkOrderResponse result = workOrderService.completeWorkOrder(1L, technicianPrincipal);
+
             assertThat(result.getStatus()).isEqualTo("COMPLETED");
         }
 
@@ -589,8 +648,10 @@ class WorkOrderServiceTest {
             WorkOrder wo = buildTestWorkOrder(WorkOrderStatus.IN_PROGRESS);
             when(workOrderRepository.findById(1L)).thenReturn(Optional.of(wo));
 
+            AssignWorkOrderRequest request = AssignWorkOrderRequest.builder()
+                    .technicianId(2L).build();
             assertThatThrownBy(() ->
-                    workOrderService.assignWorkOrder(1L, dispatcherPrincipal))
+                    workOrderService.assignWorkOrder(1L, request, dispatcherPrincipal))
                     .isInstanceOf(BusinessRuleException.class)
                     .hasMessageContaining("not allowed");
         }
@@ -613,8 +674,10 @@ class WorkOrderServiceTest {
             WorkOrder wo = buildTestWorkOrder(WorkOrderStatus.CANCELLED);
             when(workOrderRepository.findById(1L)).thenReturn(Optional.of(wo));
 
+            AssignWorkOrderRequest request = AssignWorkOrderRequest.builder()
+                    .technicianId(2L).build();
             assertThatThrownBy(() ->
-                    workOrderService.assignWorkOrder(1L, dispatcherPrincipal))
+                    workOrderService.assignWorkOrder(1L, request, dispatcherPrincipal))
                     .isInstanceOf(BusinessRuleException.class)
                     .hasMessageContaining("not allowed");
         }
@@ -638,10 +701,13 @@ class WorkOrderServiceTest {
         void fullLifecycle() {
             WorkOrder wo = buildTestWorkOrder(WorkOrderStatus.OPEN);
             when(workOrderRepository.findById(1L)).thenReturn(Optional.of(wo));
+            when(userRepository.findById(2L)).thenReturn(Optional.of(technicianUser));
             when(workOrderRepository.save(any(WorkOrder.class))).thenAnswer(i -> i.getArgument(0));
 
             // OPEN → ASSIGNED
-            WorkOrderResponse r1 = workOrderService.assignWorkOrder(1L, dispatcherPrincipal);
+            AssignWorkOrderRequest assignReq = AssignWorkOrderRequest.builder()
+                    .technicianId(2L).build();
+            WorkOrderResponse r1 = workOrderService.assignWorkOrder(1L, assignReq, dispatcherPrincipal);
             assertThat(r1.getStatus()).isEqualTo("ASSIGNED");
 
             // ASSIGNED → IN_PROGRESS
@@ -689,6 +755,191 @@ class WorkOrderServiceTest {
     }
 
     // ==========================================
+    // TECHNICIAN ASSIGNMENT TESTS (M3 Step 2)
+    // ==========================================
+
+
+    @Nested
+    @DisplayName("Technician Assignment")
+    class TechnicianAssignment {
+
+        @Test
+        @DisplayName("dispatcher assigns valid technician → OPEN → ASSIGNED")
+        void dispatcherAssignsValidTechnician() {
+            WorkOrder wo = buildTestWorkOrder(WorkOrderStatus.OPEN);
+            when(workOrderRepository.findById(1L)).thenReturn(Optional.of(wo));
+            when(userRepository.findById(2L)).thenReturn(Optional.of(technicianUser));
+            when(workOrderRepository.save(any(WorkOrder.class))).thenAnswer(i -> i.getArgument(0));
+
+            AssignWorkOrderRequest request = AssignWorkOrderRequest.builder()
+                    .technicianId(2L).build();
+
+            WorkOrderResponse result = workOrderService.assignWorkOrder(1L, request, dispatcherPrincipal);
+
+            assertThat(result.getStatus()).isEqualTo("ASSIGNED");
+            assertThat(result.getAssignedTechnicianId()).isEqualTo(2L);
+            assertThat(result.getAssignedTechnicianName()).isEqualTo("Clark Kent");
+            verify(notificationService).notifyAssignment(technicianUser, wo);
+        }
+
+        @Test
+        @DisplayName("manager can also assign a technician")
+        void managerAssignsTechnician() {
+            WorkOrder wo = buildTestWorkOrder(WorkOrderStatus.OPEN);
+            when(workOrderRepository.findById(1L)).thenReturn(Optional.of(wo));
+            when(userRepository.findById(2L)).thenReturn(Optional.of(technicianUser));
+            when(workOrderRepository.save(any(WorkOrder.class))).thenAnswer(i -> i.getArgument(0));
+
+            AssignWorkOrderRequest request = AssignWorkOrderRequest.builder()
+                    .technicianId(2L).build();
+
+            WorkOrderResponse result = workOrderService.assignWorkOrder(1L, request, managerPrincipal);
+
+            assertThat(result.getStatus()).isEqualTo("ASSIGNED");
+            assertThat(result.getAssignedTechnicianId()).isEqualTo(2L);
+        }
+
+        @Test
+        @DisplayName("reject assignment of non-technician user (e.g., DISPATCHER)")
+        void rejectNonTechnicianAssignment() {
+            WorkOrder wo = buildTestWorkOrder(WorkOrderStatus.OPEN);
+            when(workOrderRepository.findById(1L)).thenReturn(Optional.of(wo));
+            when(userRepository.findById(1L)).thenReturn(Optional.of(dispatcherUser));
+
+            AssignWorkOrderRequest request = AssignWorkOrderRequest.builder()
+                    .technicianId(1L).build();
+
+            assertThatThrownBy(() ->
+                    workOrderService.assignWorkOrder(1L, request, dispatcherPrincipal))
+                    .isInstanceOf(BusinessRuleException.class)
+                    .hasMessageContaining("does not have the TECHNICIAN role");
+        }
+
+        @Test
+        @DisplayName("reject assignment of non-existent user")
+        void rejectNonExistentUser() {
+            WorkOrder wo = buildTestWorkOrder(WorkOrderStatus.OPEN);
+            when(workOrderRepository.findById(1L)).thenReturn(Optional.of(wo));
+            when(userRepository.findById(999L)).thenReturn(Optional.empty());
+
+            AssignWorkOrderRequest request = AssignWorkOrderRequest.builder()
+                    .technicianId(999L).build();
+
+            assertThatThrownBy(() ->
+                    workOrderService.assignWorkOrder(1L, request, dispatcherPrincipal))
+                    .isInstanceOf(ResourceNotFoundException.class)
+                    .hasMessageContaining("User");
+        }
+
+        @Test
+        @DisplayName("reject assignment of inactive technician")
+        void rejectInactiveTechnician() {
+            User inactiveTech = User.builder()
+                    .id(10L).username("inactive_tech").email("inactive@keystone.com")
+                    .fullName("Inactive Tech").role(Role.TECHNICIAN).active(false).build();
+
+            WorkOrder wo = buildTestWorkOrder(WorkOrderStatus.OPEN);
+            when(workOrderRepository.findById(1L)).thenReturn(Optional.of(wo));
+            when(userRepository.findById(10L)).thenReturn(Optional.of(inactiveTech));
+
+            AssignWorkOrderRequest request = AssignWorkOrderRequest.builder()
+                    .technicianId(10L).build();
+
+            assertThatThrownBy(() ->
+                    workOrderService.assignWorkOrder(1L, request, dispatcherPrincipal))
+                    .isInstanceOf(BusinessRuleException.class)
+                    .hasMessageContaining("not active");
+        }
+
+        @Test
+        @DisplayName("notification is created on assignment")
+        void notificationCreatedOnAssignment() {
+            WorkOrder wo = buildTestWorkOrder(WorkOrderStatus.OPEN);
+            when(workOrderRepository.findById(1L)).thenReturn(Optional.of(wo));
+            when(userRepository.findById(2L)).thenReturn(Optional.of(technicianUser));
+            when(workOrderRepository.save(any(WorkOrder.class))).thenAnswer(i -> i.getArgument(0));
+
+            AssignWorkOrderRequest request = AssignWorkOrderRequest.builder()
+                    .technicianId(2L).build();
+
+            workOrderService.assignWorkOrder(1L, request, dispatcherPrincipal);
+
+            verify(notificationService, times(1)).notifyAssignment(technicianUser, wo);
+        }
+    }
+
+    // ==========================================
+    // TECHNICIAN ACCESS CONTROL (M3 Step 2)
+    // ==========================================
+
+    @Nested
+    @DisplayName("Technician Access Control")
+    class TechnicianAccessControl {
+
+        @Test
+        @DisplayName("technician can access their own assigned WO")
+        void technicianAccessOwnAssignedWo() {
+            WorkOrder wo = buildTestWorkOrder(WorkOrderStatus.ASSIGNED);
+            wo.setAssignedTechnician(technicianUser);  // assigned to technician1
+            when(workOrderRepository.findById(1L)).thenReturn(Optional.of(wo));
+
+            WorkOrderResponse result = workOrderService.getWorkOrderById(1L, technicianPrincipal);
+
+            assertThat(result.getId()).isEqualTo(1L);
+            assertThat(result.getAssignedTechnicianId()).isEqualTo(2L);
+        }
+
+        @Test
+        @DisplayName("technician cannot access unassigned WO")
+        void technicianCannotAccessUnassignedWo() {
+            WorkOrder wo = buildTestWorkOrder(WorkOrderStatus.OPEN);
+            // assignedTechnician is null
+            when(workOrderRepository.findById(1L)).thenReturn(Optional.of(wo));
+
+            assertThatThrownBy(() ->
+                    workOrderService.getWorkOrderById(1L, technicianPrincipal))
+                    .isInstanceOf(ResourceNotFoundException.class);
+        }
+
+        @Test
+        @DisplayName("technician cannot access another technician's assigned WO")
+        void technicianCannotAccessOtherTechWo() {
+            WorkOrder wo = buildTestWorkOrder(WorkOrderStatus.ASSIGNED);
+            wo.setAssignedTechnician(otherTechnicianUser);  // assigned to technician2
+            when(workOrderRepository.findById(1L)).thenReturn(Optional.of(wo));
+
+            // technician1 tries to access technician2's WO → 404
+            assertThatThrownBy(() ->
+                    workOrderService.getWorkOrderById(1L, technicianPrincipal))
+                    .isInstanceOf(ResourceNotFoundException.class);
+        }
+
+        @Test
+        @DisplayName("customer isolation still works after M3 changes")
+        void customerIsolationStillWorks() {
+            WorkOrder wo = buildTestWorkOrder(WorkOrderStatus.OPEN);
+            wo.setCustomer(otherCustomer);  // belongs to a different org
+            when(workOrderRepository.findById(1L)).thenReturn(Optional.of(wo));
+
+            // customer1 (Acme) tries to access otherCustomer's WO → 404
+            assertThatThrownBy(() ->
+                    workOrderService.getWorkOrderById(1L, customerPrincipal))
+                    .isInstanceOf(ResourceNotFoundException.class);
+        }
+
+        @Test
+        @DisplayName("dispatcher can still access any WO")
+        void dispatcherAccessAnyWo() {
+            WorkOrder wo = buildTestWorkOrder(WorkOrderStatus.ASSIGNED);
+            wo.setAssignedTechnician(technicianUser);
+            when(workOrderRepository.findById(1L)).thenReturn(Optional.of(wo));
+
+            WorkOrderResponse result = workOrderService.getWorkOrderById(1L, dispatcherPrincipal);
+            assertThat(result.getId()).isEqualTo(1L);
+        }
+    }
+
+    // ==========================================
     // TEST HELPER
     // ==========================================
 
@@ -707,4 +958,3 @@ class WorkOrderServiceTest {
                 .build();
     }
 }
-
