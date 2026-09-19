@@ -152,7 +152,7 @@ export function WorkOrderForm({ initial, onSubmit, onCancel, isEdit }: Props) {
             min={1}
             className="input"
             placeholder="Optional"
-            {...register('siteId', { valueAsNumber: true })}
+            {...register('siteId', { setValueAs: (value) => value === '' ? undefined : Number(value) })}
           />
           <p className="mt-1 text-xs text-gray-400">
             Must belong to the customer above — the backend validates this.
@@ -185,3 +185,4 @@ export function WorkOrderForm({ initial, onSubmit, onCancel, isEdit }: Props) {
     </form>
   );
 }
+
